@@ -13,7 +13,11 @@ SUPPORTED_EXTENSION = [
 
 
 def _get_extension(path):
-    _, ext = os.path.splitext(path)
+    file_name = os.path.split(path)[1]
+    ext_list = file_name.split('.')[1:]
+    ext = ''
+    for n in ext_list:
+        ext += '.' + n
     assert ext in SUPPORTED_EXTENSION, \
         "Found extension %s that is not supported for %s" % (ext, path)
     return ext
@@ -27,12 +31,17 @@ def _load_png(path, seg):
 def _load_nii(path, seg):
     data_nib = nib.load(path)
     data = data_nib.get_fdata()
+    # Transpose the image or segmentation
+    data = np.transpose(data, axes=(1, 0, 2))
     if seg:
         data = data.astype(np.uint8)
+        if data.ndim == 3:
+            data = data[:, :, 0]
     else:
         data = 255. * data
         data = data.astype(np.uint32)
     return data
+
 
 def _load_tiff(path):
     # TODO: read_region
