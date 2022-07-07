@@ -1,5 +1,6 @@
-# This is a Python script for visualising histology tiles and pixel-wise segmentation.
+# This is a Python script for visualising an histology tiles and one or several pixel-wise segmentations.
 
+import os
 from argparse import ArgumentParser
 import numpy as np
 from bokeh.layouts import column, row
@@ -14,14 +15,18 @@ ALPHA_INIT = 0.5
 
 parser = ArgumentParser()
 parser.add_argument(
+    '-i',
     '--img',
     type=str,
-    help='Image to display. Supported file extension: %s' % str(SUPPORTED_EXTENSION)
+    help='Path to the image to display. Supported file extension: %s' % str(SUPPORTED_EXTENSION)
 )
 parser.add_argument(
+    '-s',
     '--seg',
     type=str,
-    help='Segmentation to display. Supported file extension: %s' % str(SUPPORTED_EXTENSION)
+    nargs='+',
+    help='Path to the segmentation(s) to display. Several paths can be given separated by a space.'
+         ' Supported file extension: %s' % str(SUPPORTED_EXTENSION),
 )
 
 
@@ -64,52 +69,79 @@ def convert_seg_for_display(seg):
     return overlay
 
 
+def short_path_to_display(path):
+    dir_n, file_n = os.path.split(path)
+    out = os.path.split(dir_n)[1] + '/' + file_n
+    return out
+
+
 def main(args):
     # Load the tile to display as RGB image
     tile = load_data(args.img, seg=False)
-    seg = load_data(args.seg, seg=True)
+    img_name = short_path_to_display(args.img)
     xdim, ydim, chan = tile.shape
 
     # Convert the tile and the segmentation for display
     img = convert_img_for_display(tile)
-    overlay = convert_seg_for_display(seg)
 
-    # Make a data source for the main segmentation
-    slider = Slider(title="Opacity", start=0, end=1, value=ALPHA_INIT, step=0.01)
-    source = ColumnDataSource(
-        data=dict(global_alpha=[ALPHA_INIT], image=[overlay])
-    )
-
-    # Display the image
+    # Display options
     dim_ratio = FIG_MAX_DIM / max(xdim, ydim)
     width = int(dim_ratio * ydim)
     height = int(dim_ratio * xdim)
-    p = figure(
-        width=width, height=height, x_range=(0, ydim), y_range=(0, xdim),
-        title="Image and Segmentation",
-    )
-    p.image_rgba(
-        image=[img], x=0, y=0, dw=ydim, dh=xdim,
-    )
-    p.image_rgba(
-        image='image', x=0, y=0, dw=ydim, dh=xdim,
-        global_alpha='global_alpha', source=source,
-    )
 
-    # Define a callback to change dynamically the opacity of the segmentation
-    # when the user interacts with the slider
-    callback = CustomJS(
-        args=dict(source=source, slider=slider),
-        code="""
-        const alpha = source.data["global_alpha"]
-        alpha[0] = slider.value
-        source.change.emit()
-        """
-    )
-    slider.js_on_change('value', callback)
+    # Create the figure
+    sliders = {}
+    sources = {}
+    callbacks = {}
+    figs = {}
+    columns = []
+    for seg_path in args.seg:
+        # Load the segmentation
+        seg = load_data(seg_path, seg=True)
+        seg_name = short_path_to_display(seg_path)
+
+        assert seg.shape[0] == xdim and seg.shape[1] == ydim, \
+            "Segmentation %s dimension (%d, %d) do not match with image dimension (%d, %d)" % \
+            (seg_path, seg.shape[0], seg.shape[1], xdim, ydim)
+        overlay = convert_seg_for_display(seg)
+
+        # Make a slider and a data source for the segmentation
+        sliders[seg_path] = Slider(title="Opacity", start=0, end=1, value=ALPHA_INIT, step=0.01)
+        sources[seg_path] = ColumnDataSource(
+            data=dict(global_alpha=[ALPHA_INIT], image=[overlay])
+        )
+
+        # Create the figure and display the image and the segmentation
+        figs[seg_path] = figure(
+            width=width, height=height, x_range=(0, ydim), y_range=(0, xdim),
+            title="Image (%s) and Segmentation (%s)" % (img_name, seg_name),
+        )
+        figs[seg_path].image_rgba(
+            image=[img], x=0, y=0, dw=ydim, dh=xdim,
+        )
+
+        figs[seg_path].image_rgba(
+            image='image', x=0, y=0, dw=ydim, dh=xdim,
+            global_alpha='global_alpha', source=sources[seg_path],
+        )
+
+        # Define a callback to change dynamically the opacity of the segmentation
+        # when the user interacts with the slider
+        callbacks[seg_path] = CustomJS(
+            args=dict(source=sources[seg_path], slider=sliders[seg_path]),
+            code="""
+            const alpha = source.data["global_alpha"]
+            alpha[0] = slider.value
+            source.change.emit()
+            """
+        )
+        sliders[seg_path].js_on_change('value', callbacks[seg_path])
+
+        columns.append(column(figs[seg_path], sliders[seg_path]))
 
     output_file("image_and_segmentation.html")
-    layout = column(p, slider)
+    # layout = column(p, slider)
+    layout = row(columns)
     show(layout)
 
 
