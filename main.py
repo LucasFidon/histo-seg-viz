@@ -12,6 +12,11 @@ from data.color_template import CLASS2RGB
 
 FIG_MAX_DIM = 600
 ALPHA_INIT = 0.5
+CLASS_NAMES = {
+    1: 'Normal',
+    2: 'Stroma',
+    3: 'Tumor',
+}
 
 parser = ArgumentParser()
 parser.add_argument(
@@ -114,7 +119,7 @@ def main(args):
         # Create the figure and display the image and the segmentation
         figs[seg_path] = figure(
             width=width, height=height, x_range=(0, ydim), y_range=(0, xdim),
-            title="Image (%s) and Segmentation (%s)" % (img_name, seg_name),
+            title="Image (%s) Segmentation (%s)" % (img_name, seg_name),
         )
         figs[seg_path].image_rgba(
             image=[img], x=0, y=0, dw=ydim, dh=xdim,
@@ -137,7 +142,34 @@ def main(args):
         )
         sliders[seg_path].js_on_change('value', callbacks[seg_path])
 
-        columns.append(column(figs[seg_path], sliders[seg_path]))
+        # Add class legend
+        row_legend = []
+        w = width
+        h = FIG_MAX_DIM // 8
+        legend = figure(
+            width=w, height=h, x_range=(0, w), y_range=(0, h),
+            title='Classes',
+        )
+        legend.xgrid.grid_line_color = None
+        legend.ygrid.grid_line_color = None
+        legend.xaxis.visible = False
+        legend.yaxis.visible = False
+        for i in range(1, 4):
+            color = '#%02x%02x%02x' % (CLASS2RGB[i][0], CLASS2RGB[i][1], CLASS2RGB[i][2])
+            color_text = 'white' if (CLASS2RGB[i][0] > 200 or CLASS2RGB[i][2] > 200) else 'black'
+            x_center = int((i - 1 + 0.5) * w // 3)
+            y_center = h // 2
+            margin = 10
+            legend.rect(
+                x_center, y_center, width=w//3 - margin, height=h,
+                fill_color=color, line_color='black', alpha=0.8,
+            )
+            legend.text(
+                x_center, y_center - h//4, text=[CLASS_NAMES[i]], color=color_text,
+                text_align='center',
+            )
+
+        columns.append(column(figs[seg_path], sliders[seg_path], legend))
 
     output_file("image_and_segmentation.html")
     # layout = column(p, slider)
